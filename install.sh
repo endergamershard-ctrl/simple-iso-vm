@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
-# Install Boot ISO to ~/.local (bin + app menu).
+# Install Boot ISO to ~/.local (bin + app menu). Linux / Omarchy only.
+# Windows: irm https://raw.githubusercontent.com/endergamershard-ctrl/simple-iso-vm/master/install.ps1 | iex
 # Usage: bash <(curl -fsSL https://raw.githubusercontent.com/endergamershard-ctrl/simple-iso-vm/master/install.sh)
 
 set -euo pipefail
 
+if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* || "$(uname -s)" == CYGWIN* ]]; then
+  echo "This installer is for Linux. On Windows, run in PowerShell:" >&2
+  echo "  irm https://raw.githubusercontent.com/endergamershard-ctrl/simple-iso-vm/master/install.ps1 | iex" >&2
+  exit 1
+fi
 REPO_URL="${SIMPLE_ISO_VM_REPO:-https://github.com/endergamershard-ctrl/simple-iso-vm.git}"
 REPO_REF="${SIMPLE_ISO_VM_REF:-master}"
 INSTALL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/simple-iso-vm"
