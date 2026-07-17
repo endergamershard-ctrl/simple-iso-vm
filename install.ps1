@@ -52,7 +52,7 @@ New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 
 if (Test-Path (Join-Path $InstallDir '.git')) {
   git -C $InstallDir fetch --quiet origin $RepoRef
-  git -C $InstallDir checkout --quiet -B $RepoRef "origin/$RepoRef"
+  git -C $InstallDir checkout -f --quiet -B $RepoRef "origin/$RepoRef"
   git -C $InstallDir reset --hard --quiet "origin/$RepoRef"
   git -C $InstallDir clean -fd --quiet
 } else {

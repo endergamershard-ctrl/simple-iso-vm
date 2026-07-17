@@ -28,7 +28,7 @@ mkdir -p "$INSTALL_DIR" "$BIN_DIR" "$APP_DIR"
 
 if [[ -d $INSTALL_DIR/.git ]]; then
   git -C "$INSTALL_DIR" fetch --quiet origin "$REPO_REF"
-  git -C "$INSTALL_DIR" checkout --quiet -B "$REPO_REF" "origin/$REPO_REF"
+  git -C "$INSTALL_DIR" checkout -f --quiet -B "$REPO_REF" "origin/$REPO_REF"
   git -C "$INSTALL_DIR" reset --hard --quiet "origin/$REPO_REF"
   git -C "$INSTALL_DIR" clean -fd --quiet
 else
