@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# Pick an ISO and boot it in a QEMU window. No wizards.
+
+set -euo pipefail
+
+OVMF_CODE="/usr/share/edk2/x64/OVMF_CODE.4m.fd"
+OVMF_VARS_TEMPLATE="/usr/share/edk2/x64/OVMF_VARS.4m.fd"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/simple-iso-vm"
+
+ensure_deps() {
+  local need_install=false
+
+  if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
+    need_install=true
+  fi
+  if [[ ! -f $OVMF_CODE || ! -f $OVMF_VARS_TEMPLATE ]]; then
+    need_install=true
+  fi
+
+  if [[ $need_install == true ]]; then
+    if ! command -v omarchy-pkg-add >/dev/null 2>&1; then
+      notify-send -u critical "Boot ISO" "Install qemu-desktop and edk2-ovmf, then re-run." 2>/dev/null || true
+      echo "Install qemu-desktop and edk2-ovmf, then re-run." >&2
+      exit 1
+    fi
+    omarchy-pkg-add qemu-desktop edk2-ovmf
+  fi
+
+  if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
+    echo "qemu-system-x86_64 still missing after install." >&2
+    exit 1
+  fi
+  if [[ ! -f $OVMF_CODE || ! -f $OVMF_VARS_TEMPLATE ]]; then
+    echo "OVMF firmware not found under /usr/share/edk2/x64/." >&2
+    exit 1
+  fi
+  if [[ ! -e /dev/kvm ]]; then
+    echo "KVM not available (/dev/kvm missing). Enable virtualization in BIOS." >&2
+    exit 1
+  fi
+}
+
+pick_iso() {
+  if (( $# >= 1 )); then
+    local path=$1
+    if [[ ! -f $path ]]; then
+      echo "Not a file: $path" >&2
+      exit 1
+    fi
+    printf '%s\n' "$path"
+    return
+  fi
+
+  if ! command -v omarchy-menu-file >/dev/null 2>&1; then
+    echo "Usage: boot-iso /path/to/image.iso" >&2
+    echo "(omarchy-menu-file not found for interactive pick)" >&2
+    exit 1
+  fi
+
+  local iso
+  iso="$(omarchy-menu-file "Select ISO" "$HOME/Downloads" "iso" || true)"
+  if [[ -z ${iso:-} ]]; then
+    exit 0
+  fi
+  printf '%s\n' "$iso"
+}
+
+# Half of host cores (min 2, max 6) and half of RAM capped sensibly.
+vm_cpus() {
+  local n
+  n="$(nproc)"
+  n=$((n / 2))
+  (( n < 2 )) && n=2
+  (( n > 6 )) && n=6
+  printf '%s\n' "$n"
+}
+
+vm_ram() {
+  local total_kb half_gb
+  total_kb="$(awk '/MemTotal:/ {print $2}' /proc/meminfo)"
+  half_gb=$((total_kb / 1024 / 1024 / 2))
+  (( half_gb < 4 )) && half_gb=4
+  (( half_gb > 8 )) && half_gb=8
+  printf '%sG\n' "$half_gb"
+}
+
+# Start QEMU detached. Extra args are display/device flags. Echoes pid.
+start_qemu() {
+  local iso=$1 vars_file=$2 cpus=$3 ram=$4 log=$5
+  shift 5
+
+  qemu-system-x86_64 \
+    -machine q35,accel=kvm,kernel-irqchip=on \
+    -cpu host \
+    -m "$ram" \
+    -smp "$cpus",sockets=1,cores="$cpus",threads=1 \
+    -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
+    -drive if=pflash,format=raw,file="$vars_file" \
+    -drive file="$iso",media=cdrom,readonly=on,if=none,id=cd0,cache=unsafe \
+    -device virtio-scsi-pci,id=scsi0 \
+    -device scsi-cd,drive=cd0 \
+    -boot order=d \
+    -netdev user,id=net0 \
+    -device virtio-net-pci,netdev=net0 \
+    -name "Boot ISO: $(basename "$iso")" \
+    "$@" \
+    >"$log" 2>&1 &
+
+  local pid=$!
+  disown "$pid" 2>/dev/null || disown
+  printf '%s\n' "$pid"
+}
+
+boot() {
+  local iso=$1
+  local vars_file cpus ram log pid
+
+  mkdir -p "$CACHE_DIR"
+  vars_file="$CACHE_DIR/ovmf-vars.fd"
+  log="$CACHE_DIR/qemu.log"
+  cp -- "$OVMF_VARS_TEMPLATE" "$vars_file"
+
+  cpus="$(vm_cpus)"
+  ram="$(vm_ram)"
+
+  pid="$(start_qemu "$iso" "$vars_file" "$cpus" "$ram" "$log" \
+    -vga none -device virtio-vga-gl -display gtk,gl=on)"
+
+  sleep 0.5
+  if kill -0 "$pid" 2>/dev/null; then
+    return 0
+  fi
+
+  # GL display failed — fall back to software GTK.
+  pid="$(start_qemu "$iso" "$vars_file" "$cpus" "$ram" "$log" \
+    -device virtio-vga -display gtk)"
+
+  sleep 0.5
+  if ! kill -0 "$pid" 2>/dev/null; then
+    notify-send -u critical "Boot ISO" "QEMU failed to start. See $log" 2>/dev/null || true
+    echo "QEMU failed to start. See $log" >&2
+    exit 1
+  fi
+}
+
+main() {
+  ensure_deps
+  local iso
+  iso="$(pick_iso "$@")"
+  boot "$iso"
+}
+
+main "$@"
