@@ -2,7 +2,7 @@
 Name=Boot ISO
 Comment=Pick an ISO and boot it in QEMU
 Exec=uwsm app -- boot-iso
-Icon=media-optical
+Icon=boot-iso
 Terminal=false
 Type=Application
 Categories=System;Emulator;

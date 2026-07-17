@@ -52,8 +52,9 @@ New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 
 if (Test-Path (Join-Path $InstallDir '.git')) {
   git -C $InstallDir fetch --quiet origin $RepoRef
-  git -C $InstallDir checkout --quiet $RepoRef
-  git -C $InstallDir pull --ff-only --quiet origin $RepoRef
+  git -C $InstallDir checkout --quiet -B $RepoRef "origin/$RepoRef"
+  git -C $InstallDir reset --hard --quiet "origin/$RepoRef"
+  git -C $InstallDir clean -fd --quiet
 } else {
   if (Test-Path $InstallDir) {
     Remove-Item -Recurse -Force $InstallDir
@@ -76,13 +77,18 @@ if ($userPath -notlike "*$InstallDir*") {
 }
 
 # Start Menu shortcut (hidden PowerShell host → only the QEMU window).
+$iconIco = Join-Path $InstallDir 'icon.ico'
 $wsh = New-Object -ComObject WScript.Shell
 $sc = $wsh.CreateShortcut($ShortcutPath)
 $sc.TargetPath = 'powershell.exe'
 $sc.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$LauncherPs1`""
 $sc.WorkingDirectory = $InstallDir
 $sc.Description = 'Pick an ISO and boot it in QEMU'
-$sc.IconLocation = 'shell32.dll,167'
+if (Test-Path -LiteralPath $iconIco) {
+  $sc.IconLocation = "$iconIco,0"
+} else {
+  $sc.IconLocation = 'shell32.dll,167'
+}
 $sc.Save()
 
 Write-Host ''

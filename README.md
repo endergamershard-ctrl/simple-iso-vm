@@ -10,7 +10,7 @@ The Linux and Windows installers are separate. The Linux curl one-liner will **n
 bash <(curl -fsSL https://raw.githubusercontent.com/endergamershard-ctrl/simple-iso-vm/master/install.sh)
 ```
 
-Clones into `~/.local/share/simple-iso-vm`, puts `boot-iso` on your PATH via `~/.local/bin`, and adds **Boot ISO** to the app menu.
+Clones into `~/.local/share/simple-iso-vm`, puts `boot-iso` on your PATH via `~/.local/bin`, and adds **Boot ISO** (Matrix green disc icon) to the app menu.
 
 Re-run the same command anytime to update.
 
