@@ -1,9 +1,10 @@
 [Desktop Entry]
 Name=Boot ISO
 Comment=Pick an ISO and boot it in QEMU
-Exec=uwsm app -- /home/nn/Projects/simple-iso-vm/boot-iso
+Exec=uwsm app -- boot-iso
 Icon=media-optical
 Terminal=false
 Type=Application
 Categories=System;Emulator;
 Keywords=qemu;iso;vm;virtual;
+TryExec=boot-iso
