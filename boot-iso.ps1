@@ -123,6 +123,28 @@ function Get-VmRamMb {
   return [int]($halfGb * 1024)
 }
 
+# 'uefi' if the ISO carries an x64 UEFI loader, else 'bios'. Our OVMF is x64,
+# so ia32-only / BIOS-only media must boot via SeaBIOS instead.
+function Get-FirmwareForIso {
+  param([string]$Path)
+  $img = $null
+  try {
+    $img = Mount-DiskImage -ImagePath $Path -PassThru -ErrorAction Stop
+    $vol = ($img | Get-Volume -ErrorAction Stop)
+    $drive = $vol.DriveLetter
+    if ($drive) {
+      $loader = Join-Path ($drive + ':\') 'EFI\BOOT\BOOTX64.EFI'
+      if (Test-Path -LiteralPath $loader) { return 'uefi' }
+    }
+    return 'bios'
+  } catch {
+    # If we cannot inspect it, assume UEFI (covers the common case).
+    return 'uefi'
+  } finally {
+    if ($img) { Dismount-DiskImage -ImagePath $Path -ErrorAction SilentlyContinue | Out-Null }
+  }
+}
+
 $qemu = Find-Qemu
 if (-not $qemu) {
   Add-Type -AssemblyName System.Windows.Forms | Out-Null
@@ -136,24 +158,47 @@ if (-not $qemu) {
 }
 
 $isoPath = Select-Iso -Path $Iso
-$ovmf = Find-Ovmf
-$varsFile = Join-Path $CacheDir 'ovmf-vars.fd'
-Copy-Item -LiteralPath $ovmf.VarsTemplate -Destination $varsFile -Force
-
 $cpus = Get-VmCpus
 $ramMb = Get-VmRamMb
 $accel = if (Test-Whpx) { 'whpx' } else { 'tcg' }
+$firmware = Get-FirmwareForIso -Path $isoPath
+
+# Persistent per-ISO disk so installers have a target. Fresh disk: boot the CD.
+# Existing disk: boot it first (installed system), ISO as fallback.
+$diskDir = Join-Path $CacheDir 'disks'
+New-Item -ItemType Directory -Force -Path $diskDir | Out-Null
+$disk = Join-Path $diskDir ([System.IO.Path]::GetFileNameWithoutExtension($isoPath) + '.qcow2')
+if (Test-Path -LiteralPath $disk) {
+  $bootOrder = 'c'
+} else {
+  $bootOrder = 'd'
+  $qemuImg = Join-Path (Split-Path -Parent $qemu) 'qemu-img.exe'
+  & $qemuImg create -f qcow2 $disk 40G | Out-Null
+}
 
 $qemuArgs = @(
   '-machine', "q35,accel=$accel"
   '-m', "$ramMb"
   '-smp', "$cpus"
-  '-drive', "if=pflash,format=raw,readonly=on,file=$($ovmf.Code)"
-  '-drive', "if=pflash,format=raw,file=$varsFile"
+)
+
+# UEFI guests need OVMF pflash; BIOS guests use QEMU's built-in SeaBIOS.
+if ($firmware -eq 'uefi') {
+  $ovmf = Find-Ovmf
+  $varsFile = Join-Path $CacheDir 'ovmf-vars.fd'
+  Copy-Item -LiteralPath $ovmf.VarsTemplate -Destination $varsFile -Force
+  $qemuArgs += @(
+    '-drive', "if=pflash,format=raw,readonly=on,file=$($ovmf.Code)"
+    '-drive', "if=pflash,format=raw,file=$varsFile"
+  )
+}
+
+$qemuArgs += @(
   '-drive', "file=$isoPath,media=cdrom,readonly=on,if=none,id=cd0,cache=unsafe"
   '-device', 'virtio-scsi-pci,id=scsi0'
   '-device', 'scsi-cd,drive=cd0'
-  '-boot', 'order=d'
+  '-drive', "file=$disk,format=qcow2,if=virtio,discard=unmap"
+  '-boot', "order=$bootOrder,menu=on"
   '-device', 'virtio-vga'
   '-display', 'gtk'
   '-netdev', 'user,id=net0'

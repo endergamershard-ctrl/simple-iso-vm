@@ -55,10 +55,12 @@ For better speed, enable **Windows Hypervisor Platform** (Optional features). Wi
 
 ## Shared behavior
 
+- Works with UEFI **and** BIOS-only ISOs: the firmware is auto-detected per ISO (OVMF/UEFI when the ISO ships an x64 EFI loader, otherwise SeaBIOS/legacy BIOS)
+- Each ISO gets its own persistent 40G virtual disk (sparse) under the cache dir, so installers have somewhere to install. First run boots the ISO; once something is installed, later runs boot the disk with the ISO as fallback (press Esc for the boot menu)
 - VM runs detached — closing the installer/shell does not stop it; close the QEMU window instead
-- Defaults: ~half host RAM (4–8G), half host CPUs (2–6), UEFI, virtio, CD-only boot, user networking
-- Linux: KVM + host CPU + GTK/GL  
-- Windows: WHPX when available, else TCG + GTK
+- Defaults: ~half host RAM (4–8G), half host CPUs (2–6), virtio, user networking
+- Linux: KVM + host CPU + GTK/GL, disks in `~/.cache/simple-iso-vm/disks/`
+- Windows: WHPX when available, else TCG + GTK, disks in `%LOCALAPPDATA%\simple-iso-vm\disks\`
 
 ## Manual / from a clone
 

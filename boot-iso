@@ -84,27 +84,51 @@ vm_ram() {
   printf '%sG\n' "$half_gb"
 }
 
+# "uefi" if the ISO carries an x64 UEFI loader, else "bios". Our OVMF is x64,
+# so ia32-only or BIOS-only media must boot via SeaBIOS instead.
+firmware_for_iso() {
+  local iso=$1
+  if bsdtar -tf "$iso" 2>/dev/null \
+      | grep -qiE '(^|/)EFI/BOOT/BOOTX64\.EFI$'; then
+    printf 'uefi\n'
+  else
+    printf 'bios\n'
+  fi
+}
+
 # Start QEMU detached. Extra args are display/device flags. Echoes pid.
 start_qemu() {
-  local iso=$1 vars_file=$2 cpus=$3 ram=$4 log=$5
-  shift 5
+  local iso=$1 vars_file=$2 cpus=$3 ram=$4 log=$5 disk=$6 boot_order=$7 firmware=$8
+  shift 8
 
-  qemu-system-x86_64 \
-    -machine q35,accel=kvm,kernel-irqchip=on \
-    -cpu host \
-    -m "$ram" \
-    -smp "$cpus",sockets=1,cores="$cpus",threads=1 \
-    -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
-    -drive if=pflash,format=raw,file="$vars_file" \
-    -drive file="$iso",media=cdrom,readonly=on,if=none,id=cd0,cache=unsafe \
-    -device virtio-scsi-pci,id=scsi0 \
-    -device scsi-cd,drive=cd0 \
-    -boot order=d \
-    -netdev user,id=net0 \
-    -device virtio-net-pci,netdev=net0 \
-    -name "Boot ISO: $(basename "$iso")" \
-    "$@" \
-    >"$log" 2>&1 &
+  local args=(
+    -machine q35,accel=kvm,kernel-irqchip=on
+    -cpu host
+    -m "$ram"
+    -smp "$cpus",sockets=1,cores="$cpus",threads=1
+  )
+
+  # UEFI guests need OVMF pflash; BIOS guests use QEMU's built-in SeaBIOS.
+  if [[ $firmware == uefi ]]; then
+    args+=(
+      -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE"
+      -drive if=pflash,format=raw,file="$vars_file"
+    )
+  fi
+
+  args+=(
+    -drive file="$iso",media=cdrom,readonly=on,if=none,id=cd0,cache=unsafe
+    -device virtio-scsi-pci,id=scsi0
+    -device scsi-cd,drive=cd0
+    -drive file="$disk",format=qcow2,if=virtio,discard=unmap
+    -boot "order=$boot_order,menu=on"
+    -netdev user,id=net0
+    -device virtio-net-pci,netdev=net0
+    -name "Boot ISO: $(basename "$iso")"
+    "$@"
+  )
+
+  qemu-system-x86_64 "${args[@]}" >"$log" 2>&1 &
 
   local pid=$!
   disown "$pid" 2>/dev/null || disown
@@ -113,17 +137,28 @@ start_qemu() {
 
 boot() {
   local iso=$1
-  local vars_file cpus ram log pid
+  local vars_file cpus ram log pid disk boot_order firmware
 
-  mkdir -p "$CACHE_DIR"
+  mkdir -p "$CACHE_DIR" "$CACHE_DIR/disks"
   vars_file="$CACHE_DIR/ovmf-vars.fd"
   log="$CACHE_DIR/qemu.log"
   cp -- "$OVMF_VARS_TEMPLATE" "$vars_file"
 
   cpus="$(vm_cpus)"
   ram="$(vm_ram)"
+  firmware="$(firmware_for_iso "$iso")"
 
-  pid="$(start_qemu "$iso" "$vars_file" "$cpus" "$ram" "$log" \
+  # Persistent per-ISO disk so installers have a target. Fresh disk: boot the
+  # CD. Existing disk: boot it first (installed system), ISO as fallback.
+  disk="$CACHE_DIR/disks/$(basename "${iso%.iso}").qcow2"
+  if [[ -f $disk ]]; then
+    boot_order="c"
+  else
+    boot_order="d"
+    qemu-img create -f qcow2 -- "$disk" 40G >/dev/null
+  fi
+
+  pid="$(start_qemu "$iso" "$vars_file" "$cpus" "$ram" "$log" "$disk" "$boot_order" "$firmware" \
     -vga none -device virtio-vga-gl -display gtk,gl=on)"
 
   sleep 0.5
@@ -132,7 +167,7 @@ boot() {
   fi
 
   # GL display failed — fall back to software GTK.
-  pid="$(start_qemu "$iso" "$vars_file" "$cpus" "$ram" "$log" \
+  pid="$(start_qemu "$iso" "$vars_file" "$cpus" "$ram" "$log" "$disk" "$boot_order" "$firmware" \
     -device virtio-vga -display gtk)"
 
   sleep 0.5
