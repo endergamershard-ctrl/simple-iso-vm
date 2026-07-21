@@ -5,14 +5,14 @@
 .DESCRIPTION
   Usage (PowerShell):
     irm https://raw.githubusercontent.com/endergamershard-ctrl/simple-iso-vm/master/install.ps1 | iex
+
+  Optional env overrides: SIMPLE_ISO_VM_REPO, SIMPLE_ISO_VM_REF
+  Note: avoid a top-level param() block so `irm | iex` works reliably.
 #>
-[CmdletBinding()]
-param(
-  [string]$RepoUrl = $(if ($env:SIMPLE_ISO_VM_REPO) { $env:SIMPLE_ISO_VM_REPO } else { 'https://github.com/endergamershard-ctrl/simple-iso-vm.git' }),
-  [string]$RepoRef = $(if ($env:SIMPLE_ISO_VM_REF) { $env:SIMPLE_ISO_VM_REF } else { 'master' })
-)
 
 $ErrorActionPreference = 'Stop'
+$RepoUrl = if ($env:SIMPLE_ISO_VM_REPO) { $env:SIMPLE_ISO_VM_REPO } else { 'https://github.com/endergamershard-ctrl/simple-iso-vm.git' }
+$RepoRef = if ($env:SIMPLE_ISO_VM_REF) { $env:SIMPLE_ISO_VM_REF } else { 'master' }
 
 $InstallDir = Join-Path $env:LOCALAPPDATA 'simple-iso-vm'
 $StartMenu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
